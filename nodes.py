@@ -165,7 +165,7 @@ def _mlp_forward(original_forward):
 
 
 def _block_forward(original_forward, minimax_module):
-    def forward(self, x, t_emb, mod_segments, rope_freqs, transformer_options={}):
+    def forward(self, x, t_emb, mod_segments, rope_freqs, transformer_options={}, attention=None):
         if x.dtype != torch.float32:
             x = x.to(torch.float32)
 
@@ -174,13 +174,15 @@ def _block_forward(original_forward, minimax_module):
         h = minimax_module._mod_scale_shift(
             self.norm1(x), shift_msa, scale_msa, mod_segments
         ).to(torch.float16)
-        attention = self.attn(
+        if attention is None:
+            attention = self.attn
+        attn_out = attention(
             h,
             rope_freqs=rope_freqs,
             transformer_options=transformer_options,
         )
         x = minimax_module._mod_gate(
-            x, gate_msa, attention.to(torch.float32), mod_segments
+            x, gate_msa, attn_out.to(torch.float32), mod_segments
         )
 
         h = minimax_module._mod_scale_shift(
