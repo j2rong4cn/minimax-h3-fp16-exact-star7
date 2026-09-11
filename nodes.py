@@ -23,8 +23,9 @@ PATCH_FLAG = "star7_minimax_h3_fp16_exact_fix"
 PATCH_MODE = "star7_minimax_h3_fp16_mode"
 TE_RUNTIME_KEY = "te_speed_minimax_h3_runtime"
 TE_BOUNDARY_WRAPPER_KEY = "star7_minimax_h3_fp16_commercial_te_boundary"
-K_OUT_PROJ = 64.0
-K_FC2 = 256.0
+K_OUT_PROJ = 16.0
+K_FC2 = 8.0
+K_UP = 16.0
 
 _te_logged_runtime = ContextVar("star7_h3_fp16_te_logged_runtime", default=None)
 
@@ -144,7 +145,7 @@ def _condition_proj_forward(original_forward):
 
 def _out_proj_forward(original_forward):
     def forward(self, tensor):
-        scaled = (tensor / K_OUT_PROJ).to(torch.float16)
+        scaled = tensor.mul_(1.0 / K_OUT_PROJ).to(torch.float16)
         return original_forward(scaled).to(torch.float32).mul_(K_OUT_PROJ)
 
     return forward
@@ -157,9 +158,8 @@ def _mlp_forward(original_forward):
 
         projected = self.fc1(tensor)
         gate, up = projected.chunk(2, dim=-1)
-        activated = F.silu(gate.to(torch.float32)).mul_(up.to(torch.float32))
-        scaled = (activated / K_FC2).to(torch.float16)
-        return self.fc2(scaled).to(torch.float32).mul_(K_FC2)
+        activated = F.silu(gate).mul_(up.mul_(1.0 / K_UP))
+        return self.fc2(activated.mul_(1.0 / K_FC2)).to(torch.float32).mul_(K_FC2 * K_UP)
 
     return forward
 
